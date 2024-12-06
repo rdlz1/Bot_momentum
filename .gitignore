@@ -1,0 +1,14 @@
+# .gitignore
+
+# Exclude environment variable files
+.env
+
+# Exclude log files
+*.log
+
+# Exclude compiled Python files
+__pycache__/
+*.pyc
+
+# Exclude virtual environment directories
+venv/

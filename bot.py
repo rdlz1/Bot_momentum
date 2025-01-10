@@ -11,12 +11,16 @@ import sell_all
 import get_balance
 
 # Load API keys from .env file
-load_dotenv('/Users/desk/Python/Bot_Momentum/.env')
+load_dotenv('.env')
 
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
+if not API_KEY or not API_SECRET or not BOT_TOKEN or not CHAT_ID:
+    print("Error: One or more environment variables are missing.")
+    sys.exit(1)
 
 # Initialize Binance client
 client = Client(API_KEY, API_SECRET)
@@ -41,17 +45,16 @@ class DualOutput:
 def send_telegram_message(message):
     """Send a message via Telegram bot."""
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
-    data = {
-        'chat_id': CHAT_ID,
-        'text': message,
-        'parse_mode': 'Markdown'  # Use 'Markdown' or 'HTML'
-    }
     try:
-        response = requests.post(url, data=data)
-        if response.status_code != 200:
-            print(f"Failed to send message: {response.text}")
-    except Exception as e:
-        print(f"Error sending message: {e}")
+        payload = {
+            'chat_id': CHAT_ID,
+            'text': message,
+            'parse_mode': 'Markdown'
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending Telegram message: {e}")
 
 def buy_token(symbol, usdt_amount):
     """Buy a token using a specified amount of USDT."""
@@ -68,18 +71,30 @@ def buy_token(symbol, usdt_amount):
         if min_qty is None or step_size is None:
             print(f"Cannot fetch lot size for {symbol}. Skipping...")
             return
+
+        # Adjust quantity to comply with step size
         quantity = adjust_to_step_size(quantity, step_size)
 
         if quantity < min_qty:
             print(f"Quantity {quantity} is below the minimum allowed {min_qty} for {symbol}. Skipping...")
             return
 
+        # Format quantity to correct precision
+        step_size_str = "{:f}".format(step_size).rstrip('0')
+        decimals = len(step_size_str.split('.')[-1]) if '.' in step_size_str else 0
+        quantity_str = f"{{:.{decimals}f}}".format(quantity)
+
+        # Remove any trailing zeros and unnecessary decimal points
+        quantity_str = quantity_str.rstrip('0').rstrip('.')
+
+        print(f"Placing order for {symbol} with quantity {quantity_str}...")
+
         # Place a market buy order
         order = client.create_order(
             symbol=symbol,
             side='BUY',
             type='MARKET',
-            quantity=quantity
+            quantity=quantity_str
         )
         print(f"Buy order successful for {symbol}! Order details: {order}")
     except Exception as e:
@@ -173,7 +188,12 @@ def main():
 
     # Limit to top 5 gainers
     top_symbols = symbols[:5]
-    print(f"Top 5 gainers: {top_symbols}")
+
+    # If less than 5 top gainers, fill the rest with 'BTCUSDT'
+    while len(top_symbols) < 5:
+        top_symbols.append('BTCUSDT')
+
+    print(f"Top 5 gainers (including BTC if less than 5): {top_symbols}")
 
     # Step 4: Buy top gainers
     print("\nStep 4: Buying top gainers...")
@@ -193,7 +213,7 @@ def main():
             print(f"Insufficient USDT to buy {symbol}. Skipping...")
             continue
 
-        print(f"Buying {symbol} with {usdt_per_token:.2f} USDT...")
+        print(f"*******Buying {symbol} with {usdt_per_token:.2f} USDT...")
         buy_token(symbol, usdt_per_token)
         time.sleep(5)  # Delay to avoid rate limits
 
@@ -203,37 +223,58 @@ def main():
     final_usdt_value = get_total_usdt_value(final_balances)
     print(f"Final Total Portfolio Value: {final_usdt_value:.2f} USDT")
     
+    # Generate the summary
+    summary = generate_summary(initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value)
+
     # Return data for the summary
-    return initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value
+    return initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value, summary
 
 if __name__ == "__main__":
-    # Create an instance of DualOutput
-    dual_output = DualOutput()
-    # Redirect sys.stdout to dual_output
-    sys.stdout = dual_output
+    
+    while True:
+        # Create an instance of DualOutput
+        dual_output = DualOutput()
+        # Redirect sys.stdout to dual_output
+        sys.stdout = dual_output
 
-    # Execute your main function and get summary data
-    initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value = main()
+        try:
+            # Execute your main function and get summary data
+            initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value, summary = main()
+        except requests.exceptions.ConnectionError as ce:
+            print(f"ConnectionError: {ce}. Retrying in 20 minutes.")
+            sys.stdout = sys.__stdout__
+            time.sleep(20 * 60)  # Wait for 20 minutes before retrying
+            continue
+        except requests.exceptions.Timeout as te:
+            print(f"TimeoutError: {te}. Retrying in 1 minute.")
+            sys.stdout = sys.__stdout__
+            time.sleep(1 * 60)  # Wait for 1 minute before retrying
+            continue
+        except Exception as e:
+            print(f"Unexpected error: {e}. Retrying in 1 minute.")
+            sys.stdout = sys.__stdout__
+            time.sleep(1 * 60)  # Wait for 1 minute before retrying
+            continue
+        finally:
+            # Restore standard stdout
+            sys.stdout = sys.__stdout__
 
-    # Restore sys.stdout to its original value
-    sys.stdout = sys.__stdout__
+        # Get captured output
+        captured_logs = dual_output.getvalue()
 
-    # Get the captured output
-    output = dual_output.getvalue()
+        # Filter lines that look like errors
+        error_lines = []
+        for line in captured_logs.splitlines():
+            if any(keyword in line for keyword in ["Error", "Exception", "Failed","error", "exception", "failed"]):
+                error_lines.append(line)
+        
+        # Send only errors (if any)
+        if error_lines:
+            error_text = "\n".join(error_lines)
+            send_telegram_message(f"```\n{error_text}\n```")
 
-    # Send the captured output via Telegram
-    def send_print_output_via_telegram(output):
-        """Send the captured print output via Telegram."""
-        max_length = 4000
-        if len(output) > max_length:
-            messages = [output[i:i+max_length] for i in range(0, len(output), max_length)]
-            for msg in messages:
-                send_telegram_message(f"```\n{msg}\n```")
-                time.sleep(1)
-        else:
-            send_telegram_message(f"```\n{output}\n```")
-    send_print_output_via_telegram(output)
+        # Then send the summary
+        send_telegram_message(summary)
 
-    # Generate and send the summary report
-    summary = generate_summary(initial_balances, initial_usdt_value, top_symbols, final_balances, final_usdt_value)
-    send_telegram_message(summary)
+        # Exit after successful execution
+        break

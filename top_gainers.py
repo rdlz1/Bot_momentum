@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Load API keys from .env file
-load_dotenv('/Users/desk/Python/Bot_Momentum/.env')
+load_dotenv('.env')
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 

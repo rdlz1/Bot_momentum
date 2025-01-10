@@ -2,11 +2,11 @@ import os
 import time
 from binance.client import Client
 from dotenv import load_dotenv
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 import math
 
 # Load API keys from .env file
-load_dotenv('/Users/desk/Python/Bot_Momentum/.env')
+load_dotenv('.env')
 
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
@@ -34,13 +34,14 @@ def get_wallet_balance():
 
 def sell_token(symbol, quantity):
     try:
+        # Place a market sell order
         order = client.create_order(
             symbol=symbol,
             side='SELL',
             type='MARKET',
             quantity=quantity
         )
-        print(f"Sell order successful for {symbol}! Order details: {order}")
+        print(f"Sell order successful for {symbol}! Order ID: {order['orderId']}")
     except Exception as e:
         print(f"An error occurred while selling {symbol}: {e}")
 
@@ -62,8 +63,11 @@ def get_lot_size(symbol):
 
 def adjust_to_step_size(quantity, step_size):
     """Adjust quantity to comply with step size."""
-    precision = int(round(-math.log(step_size, 10), 0))
-    return float(round(Decimal(quantity), precision))
+    step_size_decimal = Decimal(str(step_size))
+    quantity_decimal = Decimal(str(quantity))
+    # Round down to the nearest multiple of step_size
+    adjusted_qty = (quantity_decimal // step_size_decimal) * step_size_decimal
+    return float(adjusted_qty)
 
 def execute_dust_transfer(assets):
     """Execute dust transfer for given assets."""
@@ -98,9 +102,14 @@ def main():
 
     for balance in balances:
         asset = balance['asset']
-        free_amount = float(balance['free'])
-        if asset in ['USDT', 'BNB', 'USDTUSDT'] or free_amount == 0:
-            continue
+        if asset in ['USDT', 'BNB', 'USDTUSDT']:
+            continue  # Skip USDT and BNB
+
+        # Fetch the most recent free balance
+        balance_info = client.get_asset_balance(asset=asset)
+        free_amount = float(balance_info['free'])
+        if free_amount == 0:
+            continue  # Skip if no free balance available
 
         symbol = f"{asset}USDT"
         min_qty, step_size = get_lot_size(symbol)
@@ -108,14 +117,23 @@ def main():
             print(f"Lot size info not found for {symbol}. Skipping...")
             continue
 
+        # Adjust quantity to step size and precision
         quantity = adjust_to_step_size(free_amount, step_size)
+
         if quantity < min_qty:
-            print(f"Quantity {quantity} is below minimum {min_qty} for {symbol}. Skipping...")
+            print(f"Adjusted quantity {quantity} is below minimum {min_qty} for {symbol}. Skipping...")
             continue
+
+        if quantity > free_amount:
+            print(f"Adjusted quantity {quantity} exceeds free amount {free_amount} for {symbol}. Adjusting to available balance.")
+            quantity = adjust_to_step_size(free_amount - step_size, step_size)
+            if quantity < min_qty:
+                print(f"Quantity after adjustment {quantity} is below minimum. Skipping {symbol}.")
+                continue
 
         print(f"Selling {quantity} of {symbol}...")
         sell_token(symbol, quantity)
-        time.sleep(5)
+        time.sleep(1)
 
     print("=" * 30)
     print("Converting dust to BNB...")

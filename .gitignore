@@ -12,3 +12,4 @@ __pycache__/
 
 # Exclude virtual environment directories
 venv/
+.venv/

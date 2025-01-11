@@ -6,15 +6,22 @@ This Python script automates:
 - Buying the top gainers using available USDT
 - Sending errors to a Telegram chat
 
-## Install dependencies
-    pip install -r requirements.txt
+Installation & Setup
+Clone the Repository:
+git clone https://github.com/rdlz1/Bot_momentum.git
 
-## Installation
-1. Clone this repo
-2. Create a virtual environment:  
-   ```sh
-   python3 -m venv .venv
-   source .venv/bin/activate
+Create/Activate a Virtual Environment (optional):
+python3 -m venv .venv
+source .venv/bin/activate
 
-## Run the bot
-    ./run_bot.sh
+Install Dependencies:
+pip install -r requirements.txt
+
+Configure Environment Variables (.env):
+BINANCE_API_KEY=…
+BINANCE_API_SECRET=…
+TELEGRAM_BOT_TOKEN=…
+TELEGRAM_CHAT_ID=…
+
+Run the Script:
+run_bot.sh

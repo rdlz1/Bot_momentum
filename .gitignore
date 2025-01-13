@@ -1,4 +1,4 @@
-# .gitignore
+.gitignore
 
 # Exclude environment variable files
 .env
@@ -13,3 +13,9 @@ __pycache__/
 # Exclude virtual environment directories
 venv/
 .venv/
+
+# Exclude macOS .DS_Store files
+.DS_Store
+
+# Exclude log files
+*.log
